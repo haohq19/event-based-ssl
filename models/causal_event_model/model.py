@@ -41,7 +41,7 @@ class CausalEventModel(nn.Module):
         # layer normalization
         self.ln1 = nn.LayerNorm(d_model)
         # output layer
-        self.head = nn.Linear(d_model, d_event, bias=False)
+        self.head = nn.Linear(d_model, d_event, bias=False)  # predict x, y in the first 2 channels, and the distribution of p in the last 2 channels
 
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
 

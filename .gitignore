@@ -2,5 +2,5 @@ test.py
 .vscode
 outputs
 datasets
-*/__pycache__
+*/__pycache__/
 ```

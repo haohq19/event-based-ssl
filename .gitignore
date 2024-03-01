@@ -1,3 +1,6 @@
 test.py
 .vscode
+outputs
+datasets
+*/__pycache__
 ```

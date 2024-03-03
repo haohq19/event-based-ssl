@@ -27,7 +27,7 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(_seed_)
 
 def parser_args():
-    parser = argparse.ArgumentParser(description='event-based causal event pretrain')
+    parser = argparse.ArgumentParser(description='causal event pretraining')
     # data
     parser.add_argument('--dataset', default='dvs128_gesture', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/DVS128Gesture', type=str, help='path to dataset')
@@ -38,7 +38,7 @@ def parser_args():
     parser.add_argument('--ctx_len', default=4096, type=int, help='context length')
     # run
     parser.add_argument('--device_id', default=7, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=1000, type=int, help='number of epochs')
+    parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
@@ -46,7 +46,6 @@ def parser_args():
     parser.add_argument('--resume', help='resume from checkpoint', action='store_true')
     parser.add_argument('--test', help='the test mode', action='store_true')
     return parser.parse_args()
-
 
 
 def load_data(args):
@@ -65,6 +64,7 @@ def load_data(args):
     return train_loader, val_loader
 
 def load_model(args):
+
     model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
     return model
 

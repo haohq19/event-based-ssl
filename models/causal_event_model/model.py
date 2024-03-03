@@ -20,9 +20,10 @@ class Layer(nn.Module):
         self.feedforward = ChannelMixing(d_model=d_model, layer_id=layer_id, num_layers=num_layers)
 
     def forward(self, x):
+        # output = self.attention(self.ln0(x))
         output, hidden = self.attention(self.ln0(x))
         self.hidden = hidden
-        x += output
+        x = x + output
         x = x + self.feedforward(self.ln1(x))
         return x
 

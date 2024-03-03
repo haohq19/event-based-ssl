@@ -120,11 +120,11 @@ class TokenMixing(nn.Module):
         R = self.to_R(xr)
         
         wkv = self.wkv(B, T, C, self.W, self.U, K, V)
-        hidden = wkv[:, -1, :]  # hidden.shape = [batch, channel], take the last time step as hidden state
+        hidden = wkv[:, -1, :].detach()  # hidden.shape = [batch, channel], take the last time step as hidden state
 
         rwkv = torch.sigmoid(R) * wkv
         output = self.to_output(rwkv)
-        return output, hidden  # output.shape = [batch, time, channel], wkv.shape = [batch, channel]
+        return output, hidden  # output.shape = [batch, time, channel], hidden.shape = [batch, channel]
 
 
 class ChannelMixing(nn.Module):

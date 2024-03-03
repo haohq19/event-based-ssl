@@ -20,7 +20,9 @@ class Layer(nn.Module):
         self.feedforward = ChannelMixing(d_model=d_model, layer_id=layer_id, num_layers=num_layers)
 
     def forward(self, x):
-        x = x + self.attention(self.ln0(x))
+        output, hidden = self.attention(self.ln0(x))
+        self.hidden = hidden
+        x += output
         x = x + self.feedforward(self.ln1(x))
         return x
 
@@ -61,5 +63,6 @@ class CausalEventModel(nn.Module):
         x = self.layers(x)
         x = self.ln1(x)
         output = self.head(x)
+        self.hidden = self.layers[-1].hidden
 
         return output  # output.shape = [batch, seq_len, d_event]

@@ -1,3 +1,6 @@
+# pretrain model with causal event predict
+# haohq19@gmail.com
+
 import os
 import argparse
 import random
@@ -8,11 +11,12 @@ import tqdm
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from torch.nn.utils.rnn import pad_sequence
 from spikingjelly.datasets import dvs128_gesture
 from models.causal_event_model.model import CausalEventModel
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadLoss
+from utils import pad_sequence_collator as collate_fn
+from utils import event_to_tensor as transform
 
 _seed_ = 2024
 random.seed(2024)
@@ -44,15 +48,8 @@ def parser_args():
     return parser.parse_args()
 
 
-def collate_fn(batch):
-    data, labels = zip(*batch)
-    data = pad_sequence(data, batch_first=True)
-    labels = torch.tensor(labels)
-    return data, labels
-
 
 def load_data(args):
-    transform = lambda x: torch.from_numpy(np.stack([x['t'], x['x'], x['y'], x['p']], axis=0).T)  # x.shape = [seq_len, 4]
     if args.dataset == 'dvs128_gesture':
         train_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=True, data_type='event', transform=transform)
         val_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=False, data_type='event', transform=transform)
@@ -68,9 +65,7 @@ def load_data(args):
     return train_loader, val_loader
 
 def load_model(args):
-
     model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
-
     return model
 
 

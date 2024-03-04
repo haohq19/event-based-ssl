@@ -12,10 +12,9 @@ import hashlib
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torch.utils.data import TensorDataset
-from spikingjelly.datasets import dvs128_gesture
 from models.causal_event_model.model import CausalEventModel
-from utils import pad_sequence_collator as collate_fn
-from utils import event_to_tensor as transform
+from models.heads.linear_probe import LinearProbe
+from utils.data import get_data_loader
 
 _seed_ = 2024
 random.seed(2024)
@@ -28,18 +27,18 @@ np.random.seed(_seed_)
 def parser_args():
     parser = argparse.ArgumentParser(description='transfer causal evnent pretrained representations to downstream tasks')
     # data
-    parser.add_argument('--dataset', default='dvs128_gesture', type=str, help='dataset')
-    parser.add_argument('--root', default='datasets/DVS128Gesture', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=2, type=int, help='batch size')
-    parser.add_argument('--nclasses', default=11, type=int, help='number of classes')
+    parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
+    parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
+    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
+    parser.add_argument('--nclasses', default=10, type=int, help='number of classes')
     # model
     parser.add_argument('--d_model', default=512, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--ctx_len', default=4096, type=int, help='context length')
-    parser.add_argument('--pretrained_path', default='outputs/random/dmodel512_nlayers4_T4096_test/checkpoint/checkpoint.pth', type=str, help='path to pre-trained weights')
+    parser.add_argument('--seq_len', default=1024, type=int, help='context length')
+    parser.add_argument('--pretrained_path', default='', type=str, help='path to pre-trained weights')
     # run
-    parser.add_argument('--device_id', default=7, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=50, type=int, help='number of epochs')
+    parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
+    parser.add_argument('--nepochs', default=10, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--weight_decay', default=0, type=float, help='weight decay')
@@ -48,50 +47,29 @@ def parser_args():
     return parser.parse_args()
 
 
-
-def load_data(args):
-    if args.dataset == 'dvs128_gesture':
-        train_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=True, data_type='event', transform=transform)
-        val_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=False, data_type='event', transform=transform)
-    else:
-        raise NotImplementedError(args.dataset)
-    
-    train_sampler = torch.utils.data.RandomSampler(train_dataset)
-    val_sampler = torch.utils.data.SequentialSampler(val_dataset)
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
-
-    return train_loader, val_loader
-
-def load_model(args):
+def load_pretrained_weights(model, pretrained_path):
     # load pretrained weights
-    if not os.path.exists(args.pretrained_path):
-        raise FileNotFoundError(args.pretrained_path)
+    if not os.path.exists(pretrained_path):
+        raise FileNotFoundError('pretrained weights not found at {}'.format(pretrained_path))
     else:
-        checkpoint = torch.load(args.pretrained_path)
+        checkpoint = torch.load(pretrained_path)
         if 'model' in checkpoint.keys():
             pretrained_weights = checkpoint['model']
         else:
             pretrained_weights = checkpoint
 
-    # model
-    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
     if pretrained_weights is not None:
         model.load_state_dict(pretrained_weights)
-        print('load pretrained weights from {}'.format(args.pretrained_path))
+        print('load pretrained weights from {}'.format(pretrained_path))
     else:
-        raise NotImplementedError(args.model)
+        raise ValueError('pretrained weights is None')
     
-    for param in model.parameters():
-        param.requires_grad = False
-
     return model
 
 
 def get_output_dir(args):
     output_dir = os.path.join(args.output_dir, args.dataset)
-    output_dir = os.path.join(output_dir, f'lr{args.lr}_wd{args.weight_decay}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.ctx_len}')
+    output_dir = os.path.join(output_dir, f'lr{args.lr}_wd{args.weight_decay}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.seq_len}')
 
     sha256_hash = hashlib.sha256(args.pretrained_path.encode()).hexdigest()
     output_dir += '_pt'
@@ -101,19 +79,6 @@ def get_output_dir(args):
         output_dir += '_test'
 
     return output_dir
-
-
-class LinearProbe(nn.Module):
-    def __init__(self, in_features, num_classes):
-        super().__init__()
-        self.in_features = in_features
-        self.num_classes = num_classes
-        self.fc = nn.Linear(in_features, num_classes)
-
-    def forward(self, features):
-        # feature.shape = [batch_size, in_features]
-        output = self.fc(features)
-        return output # output.shape = [batch_size, num_classes]
 
 
 def cache_representations(
@@ -140,7 +105,7 @@ def cache_representations(
         nsteps_per_epoch = len(train_loader)
         process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for data, label in train_loader:
-            input = data[:, :args.ctx_len, :] # select first ctx_len events]
+            input = data[:, :args.seq_len, :] # select first seq_len events]
             start = input[:, 0:1, 0]  # start time
             input[:, :, 0] = input[:, :, 0] - start  # transform to relative time
             input = input.cuda().float()
@@ -162,7 +127,7 @@ def cache_representations(
         nsteps_per_epoch = len(valid_loader)
         process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for input, label in valid_loader:
-            input = data[:, :args.ctx_len, :] # select first ctx_len events]
+            input = data[:, :args.seq_len, :] # select first seq_len events]
             start = input[:, 0:1, 0]  # start time
             input[:, :, 0] = input[:, :, 0] - start  # transform to relative time
             input = input.cuda().float()
@@ -303,7 +268,11 @@ def main(args):
         os.makedirs(os.path.join(output_dir, 'checkpoint'))
 
     # model
-    model = load_model(args)
+    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
+    if args.pretrained_path:
+        model = load_pretrained_weights(model, args.pretrained_path)
+    for param in model.parameters():
+        param.requires_grad = False
     model.cuda()
     
     # data
@@ -311,7 +280,7 @@ def main(args):
     cache_dir = os.path.join(args.output_dir, args.dataset, 'cache' + f'_{sha256_hash[:8]}')  # outputs/transfer/dataset_name/cache_{hash}/
     train_loader, valid_loader = None, None
     if not os.path.exists(cache_dir):
-        train_loader, valid_loader = load_data(args)
+        train_loader, valid_loader = get_data_loader(args)
     train_loader, valid_loader = cache_representations(
         model=model,
         train_loader=train_loader,

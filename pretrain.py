@@ -9,14 +9,12 @@ import numpy as np
 import torch
 import tqdm
 import torch.nn as nn
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from spikingjelly.datasets import dvs128_gesture
+from torch.utils.tensorboard import SummaryWriter
 from models.causal_event_model.model import CausalEventModel
 from models.loss.product_loss import ProductLoss
-from models.loss.dual_head_loss import DualHeadLoss
-from utils import pad_sequence_collator as collate_fn
-from utils import event_to_tensor as transform
+from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
+from utils.data import get_data_loader
 
 _seed_ = 2024
 random.seed(2024)
@@ -29,15 +27,15 @@ np.random.seed(_seed_)
 def parser_args():
     parser = argparse.ArgumentParser(description='causal event pretraining')
     # data
-    parser.add_argument('--dataset', default='dvs128_gesture', type=str, help='dataset')
-    parser.add_argument('--root', default='datasets/DVS128Gesture', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=2, type=int, help='batch size')
+    parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
+    parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
+    parser.add_argument('--batch_size', default=64, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=512, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--ctx_len', default=4096, type=int, help='context length')
+    parser.add_argument('--seq_len', default=1024, type=int, help='context length')
     # run
-    parser.add_argument('--device_id', default=7, type=int, help='GPU id to use, invalid when distributed training')
+    parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
@@ -48,37 +46,19 @@ def parser_args():
     return parser.parse_args()
 
 
-def load_data(args):
-    if args.dataset == 'dvs128_gesture':
-        train_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=True, data_type='event', transform=transform)
-        val_dataset = dvs128_gesture.DVS128Gesture(root=args.root, train=False, data_type='event', transform=transform)
-    else:
-        raise NotImplementedError(args.dataset)
-    
-    train_sampler = torch.utils.data.RandomSampler(train_dataset)
-    val_sampler = torch.utils.data.SequentialSampler(val_dataset)
-
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
-
-    return train_loader, val_loader
-
-def load_model(args):
-
-    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
-    return model
-
 
 def get_output_dir(args):
 
-    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.ctx_len}')
+    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.seq_len}')
     
     if args.criterion == 'ProductLoss':
         output_dir += '_PL'
     elif args.criterion == 'DualHeadLoss':
-        output_dir += '_DHL'
+        output_dir += '_DHL2'
     elif args.criterion == 'MSELoss':
         output_dir += '_MSE'
+    elif args.criterion == 'DualHeadL1Loss':
+        output_dir += '_DHL1'
     else:
         raise NotImplementedError(args.criterion)
 
@@ -114,18 +94,19 @@ def train(
         step = 0
         process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for data, _ in train_loader:
-            input = data[:, :args.ctx_len, :] # select first ctx_len events]
-            target = data[:, 1:args.ctx_len+1, 1:]  # auto-regressive and ignore t
-            # transform to relative time
-            start = input[:, 0:1, 0]  # start time
-            input[:, :, 0] = input[:, :, 0] - start
+            input = data[:, :args.seq_len, :] # select first seq_len events]
+            target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
             # to cuda
-            input = input.cuda().float()
-            target = target.cuda().float()
-            output = model(input)  # output.shape = [batch, ctx_len, d_event]
-            pseudo_output = input[:, :, 1:3].repeat(1, 1, 2)  # pseudo_output.shape = [batch, ctx_len, 2]
+            input = input.cuda()
+            target = target.cuda()
+            output = model(input)  # output.shape = [batch, seq_len, d_event]
+            
             loss = criterion(output, target)
-            pseudo_loss = criterion(pseudo_output, target)
+            
+            # pseudo_loss
+            # pseudo_output = input[:, :, 1:3].repeat(1, 1, 2)  # pseudo_output.shape = [batch, seq_len, 2]
+            # pseudo_loss = criterion(pseudo_output, target)
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -133,7 +114,7 @@ def train(
             total_loss += loss.item() * data.size(0)
             step += 1
             tb_writer.add_scalar(tag='loss', scalar_value=loss.item(), global_step=epoch * nsteps_per_epoch + step)
-            tb_writer.add_scalar(tag='pseudo_loss', scalar_value=pseudo_loss.item(), global_step=epoch * nsteps_per_epoch + step)
+            # tb_writer.add_scalar(tag='pseudo_loss', scalar_value=pseudo_loss.item(), global_step=epoch * nsteps_per_epoch + step)
             process_bar.update(1)
          
         total_loss /= total
@@ -147,15 +128,13 @@ def train(
         total_loss = 0
         with torch.no_grad():
             for data, _ in val_loader:
-                input = data[:, :args.ctx_len, :] # select first ctx_len events]
-                target = data[:, 1:args.ctx_len+1, 1:]  # auto-regressive and ignore t
-                # transform to relative time
-                start = input[:, 0:1, 0]  # start time
-                input[:, :, 0] = input[:, :, 0] - start
+                input = data[:, :args.seq_len, :] # select first seq_len events]
+                target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
                 # to cuda
-                input = input.cuda().float()
-                target = target.cuda().float()
-                output = model(input)  # output.shape = [batch, ctx_len, d_event]
+                input = input.cuda()
+                target = target.cuda()
+                output = model(input)  # output.shape = [batch, seq_len, d_event]
+
                 loss = criterion(output, target)
                 total_loss += loss.item() * data.size(0)
     
@@ -180,18 +159,25 @@ def train(
 
 def main(args):
 
+    # criterion
+    criterion = DualHeadL1Loss()
+    args.criterion = criterion.__class__.__name__
     print(args)
+
+    # device
     torch.cuda.set_device(args.device_id)
 
      # data
-    train_loader, val_loader = load_data(args)
+    train_loader, val_loader = get_data_loader(args)
 
-    # criterion
-    criterion = DualHeadLoss()
-    args.criterion = criterion.__class__.__name__
-    
-    # resume
+    # output_dir
     output_dir = get_output_dir(args)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    if not os.path.exists(os.path.join(output_dir, 'checkpoint')):
+        os.makedirs(os.path.join(output_dir, 'checkpoint'))
+
+    # --resume
     state_dict = None
     if args.resume:
         checkpoints = glob.glob(os.path.join(output_dir, 'checkpoint/*.pth'))
@@ -201,7 +187,7 @@ def main(args):
             print('load checkpoint from {}'.format(latest_checkpoint))
 
     # model
-    model = load_model(args)
+    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
     if state_dict:
         model.load_state_dict(state_dict['model'])
     model.cuda()
@@ -213,12 +199,6 @@ def main(args):
     if state_dict:
         optimizer.load_state_dict(state_dict['optimizer'])
         epoch = state_dict['epoch']
-
-    # output_dir
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    if not os.path.exists(os.path.join(output_dir, 'checkpoint')):
-        os.makedirs(os.path.join(output_dir, 'checkpoint'))
    
 
     train(

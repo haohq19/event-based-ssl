@@ -1,12 +1,9 @@
 import torch
 import torch.nn as nn
-import logging
 from ..rwkv4.src.model import TokenMixing, ChannelMixing
 
-logger = logging.getLogger(__name__)
 
-
-class Layer(nn.Module):
+class RWKVLayer(nn.Module):
     def __init__(self, d_model, layer_id, num_layers):
         super().__init__()
         self.d_model = d_model
@@ -40,13 +37,14 @@ class CausalEventModel(nn.Module):
         # layer normalization
         self.ln0 = nn.LayerNorm(d_model)
         # rwkv layers
-        self.layers = nn.Sequential(*[Layer(d_model=d_model, layer_id=i, num_layers=num_layers) for i in range(num_layers)])
+        self.layers = nn.ModuleList([RWKVLayer(d_model=d_model, layer_id=i, num_layers=num_layers) for i in range(num_layers)])
+        # transformer layers
+        # self.layers = nn.ModuleList([nn.TransformerEncoderLayer(d_model=d_model, nhead=4, dim_feedforward=4*d_model, batch_first=True) for _ in range(num_layers)])
         # layer normalization
         self.ln1 = nn.LayerNorm(d_model)
         # output layer
         self.head = nn.Linear(d_model, d_event, bias=False)  # predict x, y in the first 2 channels, and the distribution of p in the last 2 channels
 
-        logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
 
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear)):
@@ -61,7 +59,8 @@ class CausalEventModel(nn.Module):
 
         x = self.embedding(x)
         x = self.ln0(x)
-        x = self.layers(x)
+        for layer in self.layers:
+            x = layer(x)
         x = self.ln1(x)
         output = self.head(x)
         self.hidden = self.layers[-1].hidden

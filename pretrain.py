@@ -29,15 +29,15 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=64, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=16, type=int, help='batch size')
     # model
-    parser.add_argument('--d_model', default=512, type=int, help='dimension of embedding')
-    parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
+    parser.add_argument('--d_model', default=256, type=int, help='dimension of embedding')
+    parser.add_argument('--num_layers', default=12, type=int, help='number of layers')
     parser.add_argument('--seq_len', default=1024, type=int, help='context length')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
-    parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
+    parser.add_argument('--nworkers', default=32, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
@@ -97,11 +97,11 @@ def train(
             input = data[:, :args.seq_len, :] # select first seq_len events]
             target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
             # to cuda
-            input = input.cuda()
-            target = target.cuda()
+            input = input.cuda(non_blocking=True)
+            target = target.cuda(non_blocking=True)
             output = model(input)  # output.shape = [batch, seq_len, d_event]
             
-            loss = criterion(output, target)
+            loss = criterion(output[:, -512:, :], target[:, -512:, :])
             
             # pseudo_loss
             # pseudo_output = input[:, :, 1:3].repeat(1, 1, 2)  # pseudo_output.shape = [batch, seq_len, 2]
@@ -131,11 +131,11 @@ def train(
                 input = data[:, :args.seq_len, :] # select first seq_len events]
                 target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
                 # to cuda
-                input = input.cuda()
-                target = target.cuda()
+                input = input.cuda(non_blocking=True)
+                target = target.cuda(non_blocking=True)
                 output = model(input)  # output.shape = [batch, seq_len, d_event]
 
-                loss = criterion(output, target)
+                loss = criterion(output[:, -512:, :], target[:, -512:, :])
                 total_loss += loss.item() * data.size(0)
     
         total_loss = total_loss / total

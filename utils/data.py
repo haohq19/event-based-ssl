@@ -22,9 +22,8 @@ def transform_event_list(x, H, W, seq_len):
     x = np.stack([x['t'], x['x'], x['y'], x['p']], axis=0, dtype=np.float32)  # x.shape = [4, max_seq_len]
     x = x[:, :seq_len + 1]  # select first seq_len + 1 events
     x = torch.from_numpy(x.T)  # x.shape = [seq_len + 1, 4]
-    start = x[0, 0]  # start time
     # normalize t to relative time
-    x[:, 0] = x[:, 0] - start  
+    x[:, 0] = x[:, 0] -  x[0, 0] 
     # normalize x, y to [0, 1]
     x[:, 1] = x[:, 1] / H
     x[:, 2] = x[:, 2] / W
@@ -34,7 +33,7 @@ def get_data_loader(args):
     if args.dataset == 'dvs128_gesture':
         dataset = dvs128_gesture.DVS128Gesture
         H, W = dataset.get_H_W()
-        seq_len = args.ctx_len
+        seq_len = args.seq_len
         transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
         train_dataset = dataset(root=args.root, train=True, data_type='event', transform=transform)
         val_dataset = dataset(root=args.root, train=False, data_type='event', transform=transform)
@@ -42,7 +41,7 @@ def get_data_loader(args):
         dataset = n_mnist.NMNIST
         H, W = dataset.get_H_W()
         seq_len = args.seq_len
-        transform = partial(transform_event_list, H=34, W=34, seq_len=seq_len)
+        transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
         train_dataset = dataset(root=args.root, train=True, data_type='event', transform=transform)
         val_dataset = dataset(root=args.root, train=False, data_type='event', transform=transform)
     else:

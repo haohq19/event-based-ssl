@@ -27,21 +27,21 @@ np.random.seed(_seed_)
 def parser_args():
     parser = argparse.ArgumentParser(description='transfer causal evnent pretrained representations to downstream tasks')
     # data
-    parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
-    parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
-    parser.add_argument('--nclasses', default=10, type=int, help='number of classes')
+    parser.add_argument('--dataset', default='dvs128_gesture', type=str, help='dataset')
+    parser.add_argument('--root', default='datasets/DVS128Gesture', type=str, help='path to dataset')
+    parser.add_argument('--batch_size', default=16, type=int, help='batch size')
+    parser.add_argument('--nclasses', default=11, type=int, help='number of classes')
     # model
     parser.add_argument('--d_model', default=512, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--seq_len', default=1024, type=int, help='context length')
-    parser.add_argument('--pretrained_path', default='', type=str, help='path to pre-trained weights')
+    parser.add_argument('--seq_len', default=4096, type=int, help='context length')
+    parser.add_argument('--pretrained_path', default='/home/haohq/event-based-ssl/outputs/pretrain/dvs128_gesture_lr0.0001_dmodel512_nlayers4_T4096_DHL2/checkpoint/checkpoint_epoch30.pth', type=str, help='path to pre-trained weights')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=10, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
-    parser.add_argument('--weight_decay', default=0, type=float, help='weight decay')
+    parser.add_argument('--weight_decay', default=1e-6, type=float, help='weight decay')
     parser.add_argument('--output_dir', default='outputs/transfer/', help='path where to save')
     parser.add_argument('--test', help='the test mode', action='store_true')
     return parser.parse_args()
@@ -109,7 +109,7 @@ def cache_representations(
             start = input[:, 0:1, 0]  # start time
             input[:, :, 0] = input[:, :, 0] - start  # transform to relative time
             input = input.cuda().float()
-            model(input)
+            output = model(input)
             feature_map = model.hidden.cpu().numpy()  # N, D
             features.append(feature_map)
             labels.append(label)
@@ -131,7 +131,7 @@ def cache_representations(
             start = input[:, 0:1, 0]  # start time
             input[:, :, 0] = input[:, :, 0] - start  # transform to relative time
             input = input.cuda().float()
-            model(input)
+            output = model(input)
             feature_map = model.hidden.cpu().numpy()  # N, D
             features.append(feature_map)
             labels.append(label)

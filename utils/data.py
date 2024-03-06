@@ -63,12 +63,12 @@ def get_data_loader(args):
     
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-        val_sampler = torch.utils.data.distributed.DistributedSampler(valid_dataset)
+        valid_sampler = torch.utils.data.distributed.DistributedSampler(valid_dataset)
     else:
         train_sampler = torch.utils.data.RandomSampler(train_dataset)
-        val_sampler = torch.utils.data.SequentialSampler(valid_dataset)
+        valid_sampler = torch.utils.data.SequentialSampler(valid_dataset)
 
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=pad_sequence_collator)
-    val_loader = DataLoader(valid_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=pad_sequence_collator)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=False, collate_fn=pad_sequence_collator)
+    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, sampler=valid_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=False, collate_fn=pad_sequence_collator)
 
-    return train_loader, val_loader
+    return train_loader, valid_loader

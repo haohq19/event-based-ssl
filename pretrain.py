@@ -31,7 +31,7 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_caltech101', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NCaltech101', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
@@ -67,9 +67,6 @@ def get_output_dir(args):
         output_dir += '_DHL1'
     else:
         raise NotImplementedError(args.criterion)
-    
-    if args.distributed:
-        output_dir += '_dist'
     
     if args.test:
         output_dir += '_test'

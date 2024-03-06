@@ -47,18 +47,6 @@ def enable_print(is_master):
     __builtin__.print = print
 
 
-def global_meters_all_avg(args, *meters):
-    '''
-    meters: scalar values of loss/accuracy calculated in each rank
-    '''
-    tensors = [torch.tensor(meter, device=args.local_rank, dtype=torch.float32) for meter in meters]
-    for tensor in tensors:
-        # each item of `tensors` is all-reduced starting from index 0 (in-place)
-        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-
-    return [(tensor / args.world_size).item() for tensor in tensors]
-
-
 def global_meters_all_sum(args, *meters):
     '''
     meters: scalar values calculated in each rank
@@ -67,5 +55,7 @@ def global_meters_all_sum(args, *meters):
     for tensor in tensors:
         # each item of `tensors` is all-reduced starting from index 0 (in-place)
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
-    
-    return [tensor.item() for tensor in tensors]
+    if len(tensors) == 1:
+        return tensors[0].item()
+    else:
+        return tuple(tensor.item() for tensor in tensors)

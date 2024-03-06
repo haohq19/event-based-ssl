@@ -16,7 +16,7 @@ from models.transformer_decoder.model import TransformerDecoder
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
 from utils.data import get_data_loader
-from utils.distributed import init_ddp, is_master, global_meters_all_avg, global_meters_all_sum, save_on_master
+from utils.distributed import init_ddp, is_master, global_meters_all_sum, save_on_master
 
 _seed_ = 2024
 random.seed(2024)
@@ -49,7 +49,7 @@ def parser_args():
     # distributed
     parser.add_argument('--world-size', default=8, type=int, help='number of distributed processes')
     parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
-    parser.add_argument('--backend', default='nccl', help='distributed backend')
+    parser.add_argument('--backend', default='gloo', help='distributed backend')
     return parser.parse_args()
 
 
@@ -67,8 +67,10 @@ def get_output_dir(args):
         output_dir += '_DHL1'
     else:
         raise NotImplementedError(args.criterion)
+    
     if args.distributed:
         output_dir += '_dist'
+    
     if args.test:
         output_dir += '_test'
 
@@ -113,7 +115,8 @@ def train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            process_bar.set_description('loss: {:.3f}'.format(loss.item()))
+            if is_master():
+                process_bar.set_description('loss: {:.3f}'.format(loss.item()))
             total_loss += loss.item() * data.size(0)
             step += 1
             if is_master():

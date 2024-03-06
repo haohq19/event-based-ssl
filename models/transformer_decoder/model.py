@@ -48,7 +48,7 @@ class TransformerDecoder(nn.Module):
         # layer normalization
         self.ln0 = nn.LayerNorm(d_model)
         # output layer
-        self.head = nn.Linear(d_model, d_event, bias=False)
+        self.head = nn.Linear(d_model, 34 * 4, bias=False)
 
         # calculate the model size
         num_params = 0

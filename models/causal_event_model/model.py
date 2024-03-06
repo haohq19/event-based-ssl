@@ -40,7 +40,7 @@ class CausalEventModel(nn.Module):
         # layer normalization
         self.ln1 = nn.LayerNorm(d_model)
         # output layer
-        self.head = nn.Linear(d_model, d_event, bias=False)  # predict x, y in the first 2 channels, and the distribution of p in the last 2 channels
+        self.head = nn.Linear(d_model, 34 * 4, bias=False)  # predict x, y in the first 2 channels, and the distribution of p in the last 2 channels
 
         # calculate the model size
         num_params = 0

@@ -25,8 +25,8 @@ def transform_event_list(x, H, W, seq_len):
     # normalize t to relative time
     x[:, 0] = x[:, 0] -  x[0, 0] 
     # normalize x, y to [0, 1]
-    x[:, 1] = x[:, 1] / H
-    x[:, 2] = x[:, 2] / W
+    x[:, 1] = x[:, 1] # / H
+    x[:, 2] = x[:, 2] # / W
     return x
 
 
@@ -49,8 +49,8 @@ def get_data_loader(args):
         H, W = dataset_type.get_H_W()
         seq_len = args.seq_len
         transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
-        dataset = dataset_type(root=args.root, data_type='event', transform=transform)
-        train_dataset, valid_dataset = split_dataset_to_train_valid(dataset, train_ratio=0.9)
+        train_dataset = dataset_type(root=args.root, train=True, data_type='event', transform=transform)
+        valid_dataset = dataset_type(root=args.root, train=False, data_type='event', transform=transform)
     elif args.dataset == 'n_caltech101':
         dataset_type = n_caltech101.NCaltech101
         H, W = dataset_type.get_H_W()

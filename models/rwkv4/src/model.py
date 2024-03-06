@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.cpp_extension import load
 
-T_MAX = 4096
+T_MAX = 1024
 path = os.path.dirname(__file__)
 sources = [os.path.join(path, "../cuda/wkv_op.cpp"), os.path.join(path, "../cuda/wkv_cuda.cu")]
 wkv_cuda = load(

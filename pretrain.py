@@ -15,6 +15,7 @@ from models.causal_event_model.model import CausalEventModel
 from models.transformer_decoder.model import TransformerDecoder
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
+from models.loss.time_decay_loss import TimeDecayLoss
 from utils.data import get_data_loader
 from utils.distributed import init_ddp, is_master, global_meters_all_sum, save_on_master
 
@@ -29,14 +30,14 @@ np.random.seed(_seed_)
 def parser_args():
     parser = argparse.ArgumentParser(description='causal event pretraining')
     # data
-    parser.add_argument('--dataset', default='n_caltech101', type=str, help='dataset')
-    parser.add_argument('--root', default='datasets/NCaltech101', type=str, help='path to dataset')
+    parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
+    parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
     parser.add_argument('--batch_size', default=32, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--seq_len', default=4096, type=int, help='sequence length')
-    parser.add_argument('--init_len', default=1024, type=int, help='initial length')
+    parser.add_argument('--seq_len', default=1024, type=int, help='sequence length')
+    parser.add_argument('--init_len', default=512, type=int, help='initial length')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=5000, type=int, help='number of epochs')
@@ -65,6 +66,8 @@ def get_output_dir(args):
         output_dir += '_MSE'
     elif args.criterion == 'DualHeadL1Loss':
         output_dir += '_DHL1'
+    elif args.criterion == 'TimeDecayLoss':
+        output_dir += '_TDL'
     else:
         raise NotImplementedError(args.criterion)
     
@@ -101,7 +104,7 @@ def train(
             process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for data, _ in train_loader:
             input = data[:, :args.seq_len, :] # select first seq_len events]
-            target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
+            target = data[:, 1:args.seq_len+1, :] 
             # to cuda
             input = input.cuda(non_blocking=True)
             target = target.cuda(non_blocking=True)
@@ -134,7 +137,7 @@ def train(
         with torch.no_grad():
             for data, _ in val_loader:
                 input = data[:, :args.seq_len, :] # select first seq_len events]
-                target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
+                target = data[:, 1:args.seq_len+1, :] 
                 # to cuda
                 input = input.cuda(non_blocking=True)
                 target = target.cuda(non_blocking=True)
@@ -167,19 +170,19 @@ def train(
 def main(args):
     # init distributed data parallel
     init_ddp(args)
-    # criterion
-    criterion = DualHeadL1Loss()
-    args.criterion = criterion.__class__.__name__
-    # print args
-    print(args)
     # device
     if args.distributed:
         torch.cuda.set_device(args.local_rank)
     else:
         torch.cuda.set_device(args.device_id)
 
-     # data
+    # data
     train_loader, val_loader = get_data_loader(args)
+
+    # criterion
+    criterion = TimeDecayLoss(34, 34)
+    args.criterion = criterion.__class__.__name__
+    
 
     # output_dir
     output_dir = get_output_dir(args)
@@ -199,8 +202,8 @@ def main(args):
             print('load checkpoint from {}'.format(latest_checkpoint))
 
     # model
-    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
-    # model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model)
+    # model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
+    model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model)
     print('model size: {:.2f}M'.format(model.num_params / 1e6))
     if state_dict:
         model.load_state_dict(state_dict['model'])
@@ -216,6 +219,8 @@ def main(args):
         optimizer.load_state_dict(state_dict['optimizer'])
         epoch = state_dict['epoch']
    
+    # print args
+    print(args)
 
     train(
         model=model,

@@ -33,13 +33,14 @@ class TransformerLayer(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, d_event, d_model, nhead, num_layers, dim_feedforward):
+    def __init__(self, d_event, d_model, nhead, num_layers, dim_feedforward, d_out):
         super().__init__()
         self.d_event = d_event
         self.d_model = d_model
         self.nhead = nhead
         self.num_layers = num_layers
         self.dim_feedforward = dim_feedforward
+        self.d_out = d_out
         
         # event embedding
         self.embedding = nn.Linear(d_event, d_model)
@@ -48,7 +49,7 @@ class TransformerDecoder(nn.Module):
         # layer normalization
         self.ln0 = nn.LayerNorm(d_model)
         # output layer
-        self.head = nn.Linear(d_model, 34 * 4, bias=False)
+        self.head = nn.Linear(d_model, d_out, bias=False)
 
         # calculate the model size
         num_params = 0

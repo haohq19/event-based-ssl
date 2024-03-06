@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.cpp_extension import load
 
-T_MAX = 1024
+T_MAX = 512
 path = os.path.dirname(__file__)
 sources = [os.path.join(path, "../cuda/wkv_op.cpp"), os.path.join(path, "../cuda/wkv_cuda.cu")]
 wkv_cuda = load(
@@ -122,7 +122,7 @@ class TokenMixing(nn.Module):
 
 
 class ChannelMixing(nn.Module):
-    def __init__(self, d_model, layer_id, num_layers):
+    def __init__(self, d_model, layer_id, num_layers, dim_feedforward):
         super().__init__()
         self.layer_id = layer_id
 
@@ -138,9 +138,8 @@ class ChannelMixing(nn.Module):
             self.time_mix_k = nn.Parameter(torch.pow(x, ratio_1_to_almost0))
             self.time_mix_r = nn.Parameter(torch.pow(x, ratio_1_to_almost0))
 
-        d_hidden = 4 * d_model
-        self.to_K = nn.Linear(d_model, d_hidden, bias=False)
-        self.to_V = nn.Linear(d_hidden, d_model, bias=False)
+        self.to_K = nn.Linear(d_model, dim_feedforward, bias=False)
+        self.to_V = nn.Linear(dim_feedforward, d_model, bias=False)
         self.to_R = nn.Linear(d_model, d_model, bias=False)
         
         self.to_V.scale_init = 0

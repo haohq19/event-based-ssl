@@ -32,17 +32,18 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=256, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--seq_len', default=1024, type=int, help='sequence length')
-    parser.add_argument('--init_len', default=512, type=int, help='initial length')
+    parser.add_argument('--d_out', default=34*4, type=int, help='dimension of output')
+    parser.add_argument('--seq_len', default=512, type=int, help='sequence length')
+    parser.add_argument('--init_len', default=256, type=int, help='initial length')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=5000, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=8, type=int, help='number of workers')
-    parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
+    parser.add_argument('--lr', default=1e-5, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
     parser.add_argument('--resume', help='resume from latest checkpoint', action='store_true')
@@ -180,7 +181,10 @@ def main(args):
     train_loader, val_loader = get_data_loader(args)
 
     # criterion
-    criterion = TimeDecayLoss(34, 34)
+    dataset = train_loader.dataset
+    # H, W =  dataset.__class__.get_H_W()
+    # criterion = TimeDecayLoss(H, W)
+    criterion = DualHeadL2Loss()
     args.criterion = criterion.__class__.__name__
     
 
@@ -202,8 +206,8 @@ def main(args):
             print('load checkpoint from {}'.format(latest_checkpoint))
 
     # model
-    # model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
-    model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model)
+    # model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=args.d_out)
+    model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=args.d_out)
     print('model size: {:.2f}M'.format(model.num_params / 1e6))
     if state_dict:
         model.load_state_dict(state_dict['model'])

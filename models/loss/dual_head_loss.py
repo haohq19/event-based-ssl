@@ -8,9 +8,10 @@ class DualHeadL2Loss(nn.Module):
 
     def forward(self, pred, target):
         # pred.shape = [batch, seq_len, 4]
-        # target.shape = [batch, seq_len, 3]
+        # target.shape = [batch, seq_len, 4]
         # the first 2 channels predict x and y when ground truth p = 0,
         # the last 2 channels predict x and y when ground truth p = 1,
+        target = target[:, :, 1:]  # [batch, seq_len, 3]
         mask_0 = target[:, :, 2].unsqueeze(2).reshape(-1, 1)  # [batch * seq_len, 1]
         loss_0 = self.mse(pred[:, :, :2], target[:, :, :2]).mean(dim=2, keepdim=True).reshape(-1, 1)  # [batch * seq_len, 1]
         loss_0 = loss_0 * mask_0  # [batch * seq_len, 1]
@@ -28,9 +29,10 @@ class DualHeadL1Loss(nn.Module):
 
     def forward(self, pred, target):
         # pred.shape = [batch, seq_len, 4]
-        # target.shape = [batch, seq_len, 3]
+        # target.shape = [batch, seq_len, 4]
         # the first 2 channels predict x and y when ground truth p = 0,
         # the last 2 channels predict x and y when ground truth p = 1,
+        target = target[:, :, 1:]
         mask_0 = target[:, :, 2].unsqueeze(2).reshape(-1, 1)  # [batch * seq_len, 1]
         loss_0 = self.l1(pred[:, :, :2], target[:, :, :2]).mean(dim=2, keepdim=True).reshape(-1, 1)  # [batch * seq_len, 1]
         loss_0 = loss_0 * mask_0  # [batch * seq_len, 1]

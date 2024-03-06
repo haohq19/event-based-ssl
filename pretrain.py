@@ -12,6 +12,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from models.causal_event_model.model import CausalEventModel
+from models.transformer_decoder.model import TransformerDecoder
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
 from utils.data import get_data_loader
@@ -29,7 +30,7 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_caltech101', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NCaltech101', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=16, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=4, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
@@ -42,8 +43,8 @@ def parser_args():
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
-    parser.add_argument('--resume', help='resume from checkpoint', action='store_true')
-    parser.add_argument('--test', help='the test mode', action='store_true')
+    parser.add_argument('--resume', help='resume from latest checkpoint', action='store_true')
+    parser.add_argument('--test', help='run in the vscode', action='store_true')
     return parser.parse_args()
 
 
@@ -64,7 +65,7 @@ def get_output_dir(args):
         raise NotImplementedError(args.criterion)
 
     if args.test:
-        output_dir += '_test'
+        output_dir += '_test_transformer_decoder'
 
     return output_dir
 
@@ -178,17 +179,18 @@ def main(args):
     if not os.path.exists(os.path.join(output_dir, 'checkpoint')):
         os.makedirs(os.path.join(output_dir, 'checkpoint'))
 
-    # --resume
+    # resume
     state_dict = None
     if args.resume:
         checkpoints = glob.glob(os.path.join(output_dir, 'checkpoint/*.pth'))
         if checkpoints:
-            latest_checkpoint = max(checkpoints, key=os.path.getctime)
+            latest_checkpoint = max(checkpoints, key=os.path.getctime)  # get the latest checkpoint
             state_dict = torch.load(latest_checkpoint)
             print('load checkpoint from {}'.format(latest_checkpoint))
 
     # model
     model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
+    # model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model)
     print('model size: {:.2f}M'.format(model.num_params / 1e6))
     if state_dict:
         model.load_state_dict(state_dict['model'])

@@ -1,3 +1,8 @@
+# Dataset class for N-ImageNet dataset
+# Source to the dataset: https://github.com/82magnolia/n_imagenet
+# N-ImageNet is converted from ImageNet dataset with discrete time stamps,
+# therefore, it is unsuitable for autoregressive event-based pretraining.
+
 import os
 import numpy as np
 from torchvision.datasets import DatasetFolder

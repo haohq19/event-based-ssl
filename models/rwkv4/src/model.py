@@ -6,16 +6,9 @@ import os
 import math
 import torch
 import torch.nn as nn
-
-########################################################################################################
-# CUDA Kernel
-########################################################################################################
+from torch.utils.cpp_extension import load
 
 T_MAX = 4096
-# increase this if your ctx_len is long [NOTE: TAKES LOTS OF VRAM!]
-# it's possible to go beyond CUDA limitations if you slice the ctx and pass the hidden state in each slice
-
-from torch.utils.cpp_extension import load
 path = os.path.dirname(__file__)
 sources = [os.path.join(path, "../cuda/wkv_op.cpp"), os.path.join(path, "../cuda/wkv_cuda.cu")]
 wkv_cuda = load(
@@ -24,6 +17,7 @@ wkv_cuda = load(
     verbose=True, 
     extra_cuda_cflags=['-res-usage', '--maxrregcount 60', '--use_fast_math', '-O3', '-Xptxas -O3', f'-DTmax={T_MAX}']
     )
+
 
 class WKV(torch.autograd.Function):
     @staticmethod

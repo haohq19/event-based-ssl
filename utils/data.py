@@ -3,7 +3,7 @@ import numpy as np
 from functools import partial
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
-from spikingjelly.datasets import dvs128_gesture, n_mnist
+from spikingjelly.datasets import dvs128_gesture, n_mnist, n_caltech101, cifar10_dvs
 
 def pad_sequence_collator(batch):
     '''
@@ -29,28 +29,42 @@ def transform_event_list(x, H, W, seq_len):
     x[:, 2] = x[:, 2] / W
     return x
 
+
+def split_dataset_to_train_valid(dataset, train_ratio=0.9):
+    valid_ratio = 1 - train_ratio
+    train_dataset, valid_dataset = torch.utils.data.random_split(dataset, [train_ratio, valid_ratio])
+    return train_dataset, valid_dataset 
+
+
 def get_data_loader(args):
     if args.dataset == 'dvs128_gesture':
-        dataset = dvs128_gesture.DVS128Gesture
-        H, W = dataset.get_H_W()
+        dataset_type = dvs128_gesture.DVS128Gesture
+        H, W = dataset_type.get_H_W()
         seq_len = args.seq_len
         transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
-        train_dataset = dataset(root=args.root, train=True, data_type='event', transform=transform)
-        val_dataset = dataset(root=args.root, train=False, data_type='event', transform=transform)
+        train_dataset = dataset_type(root=args.root, train=True, data_type='event', transform=transform)
+        valid_dataset = dataset_type(root=args.root, train=False, data_type='event', transform=transform)
     elif args.dataset == 'n_mnist':
-        dataset = n_mnist.NMNIST
-        H, W = dataset.get_H_W()
+        dataset_type = n_mnist.NMNIST
+        H, W = dataset_type.get_H_W()
         seq_len = args.seq_len
         transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
-        train_dataset = dataset(root=args.root, train=True, data_type='event', transform=transform)
-        val_dataset = dataset(root=args.root, train=False, data_type='event', transform=transform)
+        dataset = dataset_type(root=args.root, data_type='event', transform=transform)
+        train_dataset, valid_dataset = split_dataset_to_train_valid(dataset, train_ratio=0.9)
+    elif args.dataset == 'n_caltech101':
+        dataset_type = n_caltech101.NCaltech101
+        H, W = dataset_type.get_H_W()
+        seq_len = args.seq_len
+        transform = partial(transform_event_list, H=H, W=W, seq_len=seq_len)
+        dataset = dataset_type(root=args.root, data_type='event', transform=transform)
+        train_dataset, valid_dataset = split_dataset_to_train_valid(dataset, train_ratio=0.9)
     else:
         raise NotImplementedError(args.dataset)
     
     train_sampler = torch.utils.data.RandomSampler(train_dataset)
-    val_sampler = torch.utils.data.SequentialSampler(val_dataset)
+    val_sampler = torch.utils.data.SequentialSampler(valid_dataset)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=pad_sequence_collator)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=pad_sequence_collator)
+    val_loader = DataLoader(valid_dataset, batch_size=args.batch_size, sampler=val_sampler, num_workers=args.nworkers, pin_memory=True, drop_last=True, collate_fn=pad_sequence_collator)
 
     return train_loader, val_loader

@@ -27,17 +27,18 @@ np.random.seed(_seed_)
 def parser_args():
     parser = argparse.ArgumentParser(description='causal event pretraining')
     # data
-    parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
-    parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
+    parser.add_argument('--dataset', default='n_caltech101', type=str, help='dataset')
+    parser.add_argument('--root', default='datasets/NCaltech101', type=str, help='path to dataset')
     parser.add_argument('--batch_size', default=16, type=int, help='batch size')
     # model
-    parser.add_argument('--d_model', default=256, type=int, help='dimension of embedding')
-    parser.add_argument('--num_layers', default=12, type=int, help='number of layers')
-    parser.add_argument('--seq_len', default=1024, type=int, help='context length')
+    parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
+    parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
+    parser.add_argument('--seq_len', default=4096, type=int, help='sequence length')
+    parser.add_argument('--init_len', default=1024, type=int, help='initial length')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
-    parser.add_argument('--nworkers', default=32, type=int, help='number of workers')
+    parser.add_argument('--nepochs', default=5000, type=int, help='number of epochs')
+    parser.add_argument('--nworkers', default=8, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
@@ -49,7 +50,7 @@ def parser_args():
 
 def get_output_dir(args):
 
-    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.seq_len}')
+    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.seq_len}_I{args.init_len}')
     
     if args.criterion == 'ProductLoss':
         output_dir += '_PL'
@@ -101,7 +102,7 @@ def train(
             target = target.cuda(non_blocking=True)
             output = model(input)  # output.shape = [batch, seq_len, d_event]
             
-            loss = criterion(output[:, -512:, :], target[:, -512:, :])
+            loss = criterion(output[:, args.init_len:, :], target[:, args.init_len:, :])  # ignore first init_len events
             
             # pseudo_loss
             # pseudo_output = input[:, :, 1:3].repeat(1, 1, 2)  # pseudo_output.shape = [batch, seq_len, 2]
@@ -188,6 +189,7 @@ def main(args):
 
     # model
     model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers)
+    print('model size: {:.2f}M'.format(model.num_params / 1e6))
     if state_dict:
         model.load_state_dict(state_dict['model'])
     model.cuda()

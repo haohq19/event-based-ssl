@@ -16,6 +16,7 @@ from models.transformer_decoder.model import TransformerDecoder
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
 from utils.data import get_data_loader
+from utils.distributed import init_ddp, is_master, global_meters_all_avg, global_meters_all_sum, save_on_master
 
 _seed_ = 2024
 random.seed(2024)
@@ -45,8 +46,11 @@ def parser_args():
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
     parser.add_argument('--resume', help='resume from latest checkpoint', action='store_true')
     parser.add_argument('--test', help='run in the vscode', action='store_true')
+    # distributed
+    parser.add_argument('--world-size', default=8, type=int, help='number of distributed processes')
+    parser.add_argument('--dist-url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--backend', default='nccl', help='distributed backend')
     return parser.parse_args()
-
 
 
 def get_output_dir(args):
@@ -63,9 +67,10 @@ def get_output_dir(args):
         output_dir += '_DHL1'
     else:
         raise NotImplementedError(args.criterion)
-
+    if args.distributed:
+        output_dir += '_dist'
     if args.test:
-        output_dir += '_test_transformer_decoder'
+        output_dir += '_test'
 
     return output_dir
 
@@ -80,21 +85,21 @@ def train(
     output_dir: str,
     args: argparse.Namespace,
 ):  
-    tb_writer = SummaryWriter(output_dir + '/log')
-    print('log saved to {}'.format(output_dir + '/log'))
-
-    torch.cuda.empty_cache()
+    if is_master():
+        tb_writer = SummaryWriter(output_dir + '/log')
+        print('log saved to {}'.format(output_dir + '/log'))
     
-    # train 
+    # train
     epoch = epoch
     while(epoch < nepochs):
-        print('Epoch {}/{}'.format(epoch+1, nepochs))
+        print('epoch {}/{}'.format(epoch+1, nepochs))
         model.train()
         total = len(train_loader.dataset)
         total_loss = 0
         nsteps_per_epoch = len(train_loader)
         step = 0
-        process_bar = tqdm.tqdm(total=nsteps_per_epoch)
+        if is_master():
+            process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for data, _ in train_loader:
             input = data[:, :args.seq_len, :] # select first seq_len events]
             target = data[:, 1:args.seq_len+1, 1:]  # auto-regressive and ignore t
@@ -105,23 +110,21 @@ def train(
             
             loss = criterion(output[:, args.init_len:, :], target[:, args.init_len:, :])  # ignore first init_len events
             
-            # pseudo_loss
-            # pseudo_output = input[:, :, 1:3].repeat(1, 1, 2)  # pseudo_output.shape = [batch, seq_len, 2]
-            # pseudo_loss = criterion(pseudo_output, target)
-            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             process_bar.set_description('loss: {:.3f}'.format(loss.item()))
             total_loss += loss.item() * data.size(0)
             step += 1
-            tb_writer.add_scalar(tag='loss', scalar_value=loss.item(), global_step=epoch * nsteps_per_epoch + step)
-            # tb_writer.add_scalar(tag='pseudo_loss', scalar_value=pseudo_loss.item(), global_step=epoch * nsteps_per_epoch + step)
-            process_bar.update(1)
-         
+            if is_master():
+                tb_writer.add_scalar(tag='loss', scalar_value=loss.item(), global_step=epoch * nsteps_per_epoch + step)
+                process_bar.update(1)
+        if args.distributed:
+            total_loss = global_meters_all_sum(args, total_loss)
         total_loss /= total
-        tb_writer.add_scalar('train_loss', total_loss, epoch + 1)
-        process_bar.close()
+        if is_master():
+            tb_writer.add_scalar('train_loss', total_loss, epoch + 1)
+            process_bar.close()
         print('train_loss: {:.3f}'.format(total_loss))
         
         # validate
@@ -139,9 +142,11 @@ def train(
 
                 loss = criterion(output[:, -512:, :], target[:, -512:, :])
                 total_loss += loss.item() * data.size(0)
-    
+        if args.distributed:
+            total_loss = global_meters_all_sum(args, total_loss)
         total_loss = total_loss / total
-        tb_writer.add_scalar('valid_loss', total_loss, epoch + 1)
+        if is_master():
+            tb_writer.add_scalar('valid_loss', total_loss, epoch + 1)
         print('valid_loss: {:.3f}'.format(total_loss))
 
         epoch += 1
@@ -149,35 +154,40 @@ def train(
         # save
         if epoch % args.save_freq == 0:
             checkpoint = {
-                'model': model.state_dict(),
+                'model': model.module.state_dict() if args.distributed else model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch,
                 'args': args,
             }
             save_name = 'checkpoint/checkpoint_epoch{}.pth'.format(epoch)
-            torch.save(checkpoint, os.path.join(output_dir, save_name))
+            save_on_master(checkpoint, os.path.join(output_dir, save_name))
             print('saved checkpoint to {}'.format(output_dir))
 
 
 def main(args):
-
+    # init distributed data parallel
+    init_ddp(args)
     # criterion
     criterion = DualHeadL1Loss()
     args.criterion = criterion.__class__.__name__
+    # print args
     print(args)
-
     # device
-    torch.cuda.set_device(args.device_id)
+    if args.distributed:
+        torch.cuda.set_device(args.local_rank)
+    else:
+        torch.cuda.set_device(args.device_id)
 
      # data
     train_loader, val_loader = get_data_loader(args)
 
     # output_dir
     output_dir = get_output_dir(args)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    if not os.path.exists(os.path.join(output_dir, 'checkpoint')):
-        os.makedirs(os.path.join(output_dir, 'checkpoint'))
+    if is_master():
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        if not os.path.exists(os.path.join(output_dir, 'checkpoint')):
+            os.makedirs(os.path.join(output_dir, 'checkpoint'))
 
     # resume
     state_dict = None
@@ -195,7 +205,9 @@ def main(args):
     if state_dict:
         model.load_state_dict(state_dict['model'])
     model.cuda()
-    
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank])
+   
     # run
     epoch = 0
     params = filter(lambda p: p.requires_grad, model.parameters())
@@ -222,3 +234,6 @@ if __name__ == '__main__':
     args = parser_args()
     main(args)
 
+'''
+python -m torchrun --nproc_per_node=8 pretrain.py
+'''

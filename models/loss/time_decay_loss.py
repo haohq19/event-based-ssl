@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class TimeDecayLoss(nn.Module):
     def __init__(self, H, W, temperature=256):
@@ -13,6 +14,7 @@ class TimeDecayLoss(nn.Module):
         # pred.shape = [batch, seq_len, 2H + 2W]
         # target.shape = [batch, seq_len, 4], 
         # the last dimension of target is (t, x, y, p)
+        seq_len = pred.shape[1]
         pred_H_0 = pred[:, :, :self.H]                      # [batch, seq_len, H]
         pred_H_1 = pred[:, :, self.H:2*self.H]              # [batch, seq_len, H]
         pred_W_0 = pred[:, :, 2*self.H:2*self.H+self.W]     # [batch, seq_len, W]
@@ -21,20 +23,20 @@ class TimeDecayLoss(nn.Module):
         target_H_1 = torch.zeros_like(pred_H_1)  # [batch, seq_len, H]
         target_W_0 = torch.zeros_like(pred_W_0)  # [batch, seq_len, W]
         target_W_1 = torch.zeros_like(pred_W_1)  # [batch, seq_len, W]
-        target_H_0 = torch.scatter(target_H_0, 2, target[:, :, 1:2].long(), 1) * (1 - target[:, :, 3:4])  # [batch, seq_len, H]
-        target_H_1 = torch.scatter(target_H_1, 2, target[:, :, 1:2].long(), 1) * target[:, :, 3:4]
-        target_W_0 = torch.scatter(target_W_0, 2, target[:, :, 2:3].long(), 1) * (1 - target[:, :, 3:4])
-        target_W_1 = torch.scatter(target_W_1, 2, target[:, :, 2:3].long(), 1) * target[:, :, 3:4]
-        seq_len = target.size(1)
+        target_p = target[:, :, 3:4]
+        target_H_0 = torch.scatter(target_H_0, 2, target[:, :, 1:2].long(), 1 - target_p)  # [batch, seq_len, H]
+        target_H_1 = torch.scatter(target_H_1, 2, target[:, :, 1:2].long(), target_p)
+        target_W_0 = torch.scatter(target_W_0, 2, target[:, :, 2:3].long(), 1 - target_p)
+        target_W_1 = torch.scatter(target_W_1, 2, target[:, :, 2:3].long(), target_p)
+        # time decay
+        time_diff = target[:, 1:, 0] - target[:, :-1, 0]
+        time_decay = torch.exp(-time_diff / self.temperature).unsqueeze(-1)
         # reverse iterate the sequence
         for i in range(seq_len-1, 1, -1):
-            current_t = target[:, i-1, 0]  # [batch]
-            last_t = target[:, i, 0]  # [batch]
-            time_decay = torch.exp(-(last_t - current_t) / self.temperature).unsqueeze(-1)  # [batch, 1]
-            target_H_0[:, i-1, :] = target_H_0[:, i-1, :] + target_H_0[:, i, :] * time_decay
-            target_H_1[:, i-1, :] = target_H_1[:, i-1, :] + target_H_1[:, i, :] * time_decay
-            target_W_0[:, i-1, :] = target_W_0[:, i-1, :] + target_W_0[:, i, :] * time_decay
-            target_W_1[:, i-1, :] = target_W_1[:, i-1, :] + target_W_1[:, i, :] * time_decay
+            target_H_0[:, i-1, :] = target_H_0[:, i-1, :] + target_H_0[:, i, :] * time_decay[:, i-1, :]
+            target_H_1[:, i-1, :] = target_H_1[:, i-1, :] + target_H_1[:, i, :] * time_decay[:, i-1, :]
+            target_W_0[:, i-1, :] = target_W_0[:, i-1, :] + target_W_0[:, i, :] * time_decay[:, i-1, :]
+            target_W_1[:, i-1, :] = target_W_1[:, i-1, :] + target_W_1[:, i, :] * time_decay[:, i-1, :]
         target_0 = 1 - target[:, :, 3]
         target_1 = target[:, :, 3]
         pred_H_0 = pred_H_0.permute(0, 2, 1)  # [batch, H, seq_len]
@@ -53,4 +55,3 @@ class TimeDecayLoss(nn.Module):
         loss_1 = (loss_H_1 * target_1 + loss_W_1 * target_1)
         loss = (loss_0 + loss_1).mean()
         return loss
-

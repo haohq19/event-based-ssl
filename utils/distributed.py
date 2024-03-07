@@ -34,7 +34,7 @@ def init_ddp(args):
     
 def enable_print(is_master):
     '''
-    This function disables printing when not in master process
+    This function enables printing only in the master process
     '''
     import builtins as __builtin__
     builtin_print = __builtin__.print

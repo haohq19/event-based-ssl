@@ -8,6 +8,7 @@ import glob
 import numpy as np
 import torch
 import tqdm
+import yaml
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -87,6 +88,7 @@ def train(
     nepochs: int,
     epoch: int,
     output_dir: str,
+    save_freq: int,
     args: argparse.Namespace,
 ):  
     if is_master():
@@ -157,12 +159,11 @@ def train(
         epoch += 1
 
         # save
-        if epoch % args.save_freq == 0:
+        if epoch % save_freq == 0:
             checkpoint = {
                 'model': model.module.state_dict() if args.distributed else model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'epoch': epoch,
-                'args': args,
             }
             save_name = 'checkpoint/checkpoint_epoch{}.pth'.format(epoch)
             save_on_master(checkpoint, os.path.join(output_dir, save_name))
@@ -224,8 +225,11 @@ def main(args):
         optimizer.load_state_dict(state_dict['optimizer'])
         epoch = state_dict['epoch']
    
-    # print args
+    # print and save args
     print(args)
+    if is_master():
+        with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
+            yaml.dump(vars(args), f, default_flow_style=False)
 
     train(
         model=model,

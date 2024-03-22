@@ -70,4 +70,4 @@ class CausalEventModel(nn.Module):
         output = self.head(x)
         self.hidden = self.layers[-1].hidden
 
-        return output  # output.shape = [batch, seq_len, d_event]
+        return output  # output.shape = [batch, seq_len, d_out]

@@ -14,9 +14,6 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from models.causal_event_model.model import CausalEventModel
 from models.transformer_decoder.model import TransformerDecoder
-from models.loss.product_loss import ProductLoss
-from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
-from models.loss.time_decay_loss import TimeDecayLoss
 from models.discrete_event_vae.model import dVAEOutput
 from utils.data import get_data_loader
 from utils.distributed import init_ddp, is_master, global_meters_all_sum, save_on_master
@@ -34,20 +31,21 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=64, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
-    parser.add_argument('--d_out', default=1024, type=int, help='dimension of output')
     parser.add_argument('--seq_len', default=2048, type=int, help='sequence length')
-    parser.add_argument('--init_len', default=4096, type=int, help='initial length')
-    parser.add_argument('--tem', default=256, type=int, help='temperature')
+    parser.add_argument('--dim_embedding', default=256, type=int, help='dimension of embedding')
+    parser.add_argument('--nevents_per_token', default=64, type=int, help='number of events per token')
+    parser.add_argument('--vocab_size', default=1024, type=int, help='vocabulary size')
+    parser.add_argument('--dvae_root', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T64_dem256_ntk1024_dlt32_dhd32_nep50_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_50.pth', type=str, help='path to pretrained dvae model')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=5000, type=int, help='number of epochs')
+    parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
-    parser.add_argument('--lr', default=1e-5, type=float, help='learning rate')
-    parser.add_argument('--output_dir', default='outputs/pretrain/', help='path where to save')
+    parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
+    parser.add_argument('--output_dir', default='outputs/pretrain_with_dvae/', help='path where to save')
     parser.add_argument('--save_freq', default=10, type=int, help='save frequency')
     parser.add_argument('--resume', help='resume from latest checkpoint', action='store_true')
     parser.add_argument('--test', help='debug mode', action='store_true')
@@ -60,22 +58,9 @@ def parser_args():
 
 def get_output_dir(args):
 
-    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmodel{args.d_model}_nlayers{args.num_layers}_T{args.seq_len}_I{args.init_len}')
-    
-    if args.criterion == 'ProductLoss':
-        output_dir += '_PL'
-    elif args.criterion == 'DualHeadL2Loss':
-        output_dir += '_DHL2'
-    elif args.criterion == 'MSELoss':
-        output_dir += '_MSE'
-    elif args.criterion == 'DualHeadL1Loss':
-        output_dir += '_DHL1'
-    elif args.criterion == 'TimeDecayLoss':
-        output_dir += ('_TDL' + str(args.tem))
-    elif args.crterion == 'CausalLossWithdVAE':
-        output_dir += '_dVAE' + str(args.nevents_per_token) + '_dem' + str(args.dim_embedding) + '_vocab' + str(args.vocab_size)
-    else:
-        raise NotImplementedError(args.criterion)
+    output_dir = os.path.join(args.output_dir, f'{args.dataset}_lr{args.lr}_dmd{args.d_model}_nly{args.num_layers}_T{args.seq_len}')
+
+    output_dir += '_ntk' + str(args.nevents_per_token) + '_dem' + str(args.dim_embedding) + '_vsz' + str(args.vocab_size)
     
     if args.test:
         output_dir += '_test'
@@ -84,7 +69,6 @@ def get_output_dir(args):
 
 def train(
     model: nn.Module,
-    criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     train_loader: DataLoader,
     val_loader: DataLoader,
@@ -103,61 +87,48 @@ def train(
     while(epoch < nepochs):
         print('epoch {}/{}'.format(epoch+1, nepochs))
         model.train()
-        total = len(train_loader.dataset)
-        total_loss = 0
+        nsamples_per_epoch = len(train_loader.dataset)
+        epoch_loss = 0
         nsteps_per_epoch = len(train_loader)
         step = 0
         if is_master():
             process_bar = tqdm.tqdm(total=nsteps_per_epoch)
         for data, _ in train_loader:
-            input = data[:, :args.seq_len, :] # select first seq_len events]
-            target = data[:, 1:args.seq_len+1, :] 
-            # to cuda
-            input = input.cuda(non_blocking=True)
-            target = target.cuda(non_blocking=True)
-            output = model(input)  # output.shape = [batch, seq_len, d_event]
-            
-            loss = criterion(output[:, args.init_len:, :], target[:, args.init_len:, :])  # ignore first init_len events
+            # data.shape = [batch, seq_len, d_event]
+            input = data.cuda(non_blocking=True)
+            loss = model(input)
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             if is_master():
                 process_bar.set_description('loss: {:.3f}'.format(loss.item()))
-            total_loss += loss.item() * data.size(0)
+            epoch_loss += loss.item() * data.size(0)
             step += 1
             if is_master():
-                tb_writer.add_scalar(tag='loss', scalar_value=loss.item(), global_step=epoch * nsteps_per_epoch + step)
+                tb_writer.add_scalar(tag='step/loss', scalar_value=loss.item(), global_step=epoch * nsteps_per_epoch + step)
                 process_bar.update(1)
         if args.distributed:
-            total_loss = global_meters_all_sum(args, total_loss)
-        total_loss /= total
+            epoch_loss = global_meters_all_sum(args, epoch_loss)
         if is_master():
-            tb_writer.add_scalar('train_loss', total_loss, epoch + 1)
+            tb_writer.add_scalar('train/loss', epoch_loss/nsamples_per_epoch, epoch + 1)
             process_bar.close()
-        print('train_loss: {:.3f}'.format(total_loss))
+        print('train_avg_loss: {:.3f}'.format(epoch_loss/nsamples_per_epoch))
         
         # validate
         model.eval()
-        total = len(val_loader.dataset)
-        total_loss = 0
+        nsamples_per_epoch = len(val_loader.dataset)
+        epoch_loss = 0
         with torch.no_grad():
             for data, _ in val_loader:
-                input = data[:, :args.seq_len, :] # select first seq_len events]
-                target = data[:, 1:args.seq_len+1, :] 
-                # to cuda
-                input = input.cuda(non_blocking=True)
-                target = target.cuda(non_blocking=True)
-                output = model(input)  # output.shape = [batch, seq_len, d_event]
-
-                loss = criterion(output[:, -512:, :], target[:, -512:, :])
-                total_loss += loss.item() * data.size(0)
+                input = data.cuda(non_blocking=True)
+                loss = model(input)
+                epoch_loss += loss.item() * data.size(0)
         if args.distributed:
-            total_loss = global_meters_all_sum(args, total_loss)
-        total_loss = total_loss / total
+            epoch_loss = global_meters_all_sum(args, epoch_loss)
         if is_master():
-            tb_writer.add_scalar('valid_loss', total_loss, epoch + 1)
-        print('valid_loss: {:.3f}'.format(total_loss))
+            tb_writer.add_scalar('valid/loss', epoch_loss/nsamples_per_epoch, epoch + 1)
+        print('valid_avg_loss: {:.3f}'.format(epoch_loss/nsamples_per_epoch))
 
         epoch += 1
 
@@ -173,6 +144,46 @@ def train(
             print('saved checkpoint to {}'.format(output_dir))
 
 
+class CausalEventModelWithdVAEOutput(nn.Module):
+    def __init__(self, d_event, d_model, num_layers, dim_feedforward, nevents_per_token, dim_embedding, vocab_size, dvae_root):
+        super().__init__()
+        self.d_event = d_event
+        self.d_model = d_model
+        self.num_layers = num_layers
+        self.dim_feedforward = dim_feedforward
+        self.nevents_per_token = nevents_per_token
+        self.dim_embedding = dim_embedding
+        self.vocab_size = vocab_size
+        self.dvae_root = dvae_root
+
+        self.decoder = CausalEventModel(
+            d_event=d_event,
+            d_model=d_model,
+            num_layers=num_layers,
+            dim_feedforward=dim_feedforward,
+            d_out=vocab_size,
+        )
+
+        self.output = dVAEOutput(
+            nevents_per_token=nevents_per_token,
+            dim_embedding=dim_embedding,
+            vocab_size=vocab_size,
+        )
+
+        checkpoint = torch.load(dvae_root)
+        pretrained_weight = checkpoint['model']
+        self.output.dvae.load_state_dict(pretrained_weight, strict=False)
+        for p in self.output.dvae.parameters():
+            p.requires_grad = False
+
+        self.num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
+        
+    def forward(self, x):
+        output = self.decoder(x)
+        loss = self.output(output, x)
+        return loss
+
+
 def main(args):
     # init distributed data parallel
     init_ddp(args)
@@ -184,14 +195,6 @@ def main(args):
 
     # data
     train_loader, val_loader = get_data_loader(args)
-
-    # criterion
-    dataset = train_loader.dataset
-    H, W =  dataset.__class__.get_H_W()
-    criterion = TimeDecayLoss(H, W, args.tem)
-    # criterion = DualHeadL1Loss()
-    args.criterion = criterion.__class__.__name__
-    
 
     # output_dir
     output_dir = get_output_dir(args)
@@ -211,8 +214,16 @@ def main(args):
             print('load checkpoint from {}'.format(latest_checkpoint))
 
     # model
-    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=args.d_out)
-    # model = TransformerDecoder(d_event=4, d_model=args.d_model, nhead=4, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=args.d_out)
+    model = CausalEventModelWithdVAEOutput(
+        d_event=4,
+        d_model=args.d_model, 
+        num_layers=args.num_layers, 
+        dim_feedforward=4*args.d_model, 
+        nevents_per_token=args.nevents_per_token,
+        dim_embedding=args.dim_embedding,
+        vocab_size=args.vocab_size,
+        dvae_root=args.dvae_root,
+    )
     print('model size: {:.2f}M'.format(model.num_params / 1e6))
     if state_dict:
         model.load_state_dict(state_dict['model'])
@@ -236,7 +247,6 @@ def main(args):
 
     train(
         model=model,
-        criterion=criterion,
         optimizer=optimizer,
         train_loader=train_loader,
         val_loader=val_loader,

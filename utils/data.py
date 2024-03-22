@@ -20,8 +20,8 @@ def pad_sequence_collator(batch):
 
 def transform_event_list(x, H, W, seq_len): 
     x = np.stack([x['t'], x['x'], x['y'], x['p']], axis=0, dtype=np.float32)  # x.shape = [4, max_seq_len]
-    x = x[:, :seq_len + 1]  # select first seq_len + 1 events
-    x = torch.from_numpy(x.T)  # x.shape = [seq_len + 1, 4]
+    x = x[:, :seq_len]  # select first seq_len events
+    x = torch.from_numpy(x.T)  # x.shape = [seq_len, 4]
     # normalize t to relative time
     x[:, 0] = x[:, 0] -  x[0, 0] 
     # normalize x, y to [0, 1]

@@ -36,14 +36,15 @@ def parser_args():
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
     parser.add_argument('--seq_len', default=2048, type=int, help='context length')
-    parser.add_argument('--pretrained_path', default='/home/haohq/event-based-ssl/outputs/pretrain_with_dvae/n_mnist_lr0.01_dmd128_nly4_T2048_ntk64_dem256_vsz1024/checkpoint/checkpoint_epoch100.pth', type=str, help='path to pre-trained weights')
+    parser.add_argument('--vocab_size', default=1024, type=int, help='vocabulary size')
+    parser.add_argument('--pretrained_path', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T64_dem256_ntk1024_dlt32_dhd32_nep50_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_50.pth', type=str, help='path to pre-trained weights')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=20, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--weight_decay', default=0, type=float, help='weight decay')
-    parser.add_argument('--output_dir', default='outputs/transfer', help='path where to save')
+    parser.add_argument('--output_dir', default='outputs/transfer_with_dvae', help='path where to save')
     parser.add_argument('--test', help='the test mode', action='store_true')
     return parser.parse_args()
 
@@ -59,8 +60,13 @@ def load_pretrained_weights(model, pretrained_path):
         else:
             pretrained_weights = checkpoint
 
+    # for key in list(pretrained_weights.keys()):
+    #     if 'decoder.' in key:
+    #         pretrained_weights[key.replace('decoder.', '')] = pretrained_weights.pop(key)
+    #     else:
+    #         pretrained_weights.pop(key)
     if pretrained_weights is not None:
-        model.load_state_dict(pretrained_weights)
+        model.dvae.load_state_dict(pretrained_weights, strict=False)
         print('load pretrained weights from {}'.format(pretrained_path))
     else:
         raise ValueError('pretrained weights is None')
@@ -77,7 +83,7 @@ def get_output_dir(args):
     output_dir += f'_{sha256_hash[:8]}'
 
     if args.test:
-        output_dir += '_test'
+        output_dir += '_test_1'
 
     return output_dir
 
@@ -109,7 +115,7 @@ def cache_representations(
             input = data[:, :args.seq_len, :] # select first seq_len events
             input = input.cuda()
             output = model(input)
-            feature_map = model.hidden.cpu().numpy()  # N, D
+            feature_map = output.detach().cpu().numpy()  # N, D
             features.append(feature_map)
             labels.append(label)
             process_bar.update(1)
@@ -129,7 +135,7 @@ def cache_representations(
             input = data[:, :args.seq_len, :] # select first seq_len events
             input = input.cuda()
             output = model(input)
-            feature_map = model.hidden.cpu().numpy()  # N, D
+            feature_map = output.detach().cpu().numpy()  # N, D
             features.append(feature_map)
             labels.append(label)
             process_bar.update(1)
@@ -249,7 +255,6 @@ def train(
     print('best_val_acc@1: {}'.format(best_acc))
     return best_model
 
-
 def main(args):
     init_ddp(args)
     print(args)
@@ -266,7 +271,9 @@ def main(args):
         os.makedirs(os.path.join(output_dir, 'checkpoint'))
 
     # model
-    model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=1024)
+    # model = CausalEventModel(d_event=4, d_model=args.d_model, num_layers=args.num_layers, dim_feedforward=4*args.d_model, d_out=args.vocab_size)
+    from models.discrete_event_vae.discrete_event_vae import dVAELogit
+    model = dVAELogit(nevents_per_token=64, dim_embedding=256, vocab_size=1024)
     if args.pretrained_path:
         model = load_pretrained_weights(model, args.pretrained_path)
     for param in model.parameters():
@@ -287,7 +294,7 @@ def main(args):
     )
 
     # linear_probe
-    linear_probe = LinearProbe(args.d_model, args.nclasses)
+    linear_probe = LinearProbe(args.vocab_size, args.nclasses)
     linear_probe.cuda()
 
     # run

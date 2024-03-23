@@ -12,9 +12,9 @@ import yaml
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from models.causal_event_model.model import CausalEventModel
+from models.causal_event_model.causal_event_model import CausalEventModel
 from models.transformer_decoder.model import TransformerDecoder
-from models.discrete_event_vae.model import dVAEOutput
+from models.discrete_event_vae.discrete_event_vae import dVAEOutput
 from utils.data import get_data_loader
 from utils.distributed import init_ddp, is_master, global_meters_all_sum, save_on_master
 
@@ -31,7 +31,7 @@ def parser_args():
     # data
     parser.add_argument('--dataset', default='n_mnist', type=str, help='dataset')
     parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
-    parser.add_argument('--batch_size', default=64, type=int, help='batch size')
+    parser.add_argument('--batch_size', default=32, type=int, help='batch size')
     # model
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
@@ -42,7 +42,7 @@ def parser_args():
     parser.add_argument('--dvae_root', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T64_dem256_ntk1024_dlt32_dhd32_nep50_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_50.pth', type=str, help='path to pretrained dvae model')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=100, type=int, help='number of epochs')
+    parser.add_argument('--nepochs', default=200, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--output_dir', default='outputs/pretrain_with_dvae/', help='path where to save')

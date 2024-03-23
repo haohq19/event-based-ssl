@@ -12,12 +12,12 @@ import yaml
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from models.causal_event_model.model import CausalEventModel
+from models.causal_event_model.causal_event_model import CausalEventModel
 from models.transformer_decoder.model import TransformerDecoder
 from models.loss.product_loss import ProductLoss
 from models.loss.dual_head_loss import DualHeadL2Loss, DualHeadL1Loss
 from models.loss.time_decay_loss import TimeDecayLoss
-from models.discrete_event_vae.model import dVAEOutput
+from models.discrete_event_vae.discrete_event_vae import dVAEOutput
 from utils.data import get_data_loader
 from utils.distributed import init_ddp, is_master, global_meters_all_sum, save_on_master
 

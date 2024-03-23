@@ -70,10 +70,10 @@ class CausalEventModelForDiscreteEventVAEEncoding(nn.Module):
             torch.Tensor: The computed loss.
         """
         _, seq_len, _ = x.size()
-        output = self.model(x)                                                                  # output.shape = [batch, seq_len, vocab_size]
-        target = self.encoding(x, return_hidden=False)                                          # target.shape = [batch, num_tokens]
-        indices = torch.arange(self.nevents_per_token - 1, seq_len, self.nevents_per_token)     # indices.shape = [num_tokens - 1]
-        output = output[:, indices, :]                                                          # output.shape = [batch, num_tokens - 1, vocab_size]
-        target = target[:, 1:]                                                                  # target.shape = [batch, num_tokens - 1]
+        output = self.model(x)                                                                                        # output.shape = [batch, seq_len, vocab_size]
+        target = self.encoding(x, return_hidden=False)                                                                # target.shape = [batch, num_tokens]
+        indices = torch.arange(self.nevents_per_token - 1, seq_len - self.nevents_per_token, self.nevents_per_token)  # indices.shape = [num_tokens - 1]
+        output = output[:, indices, :].transpose(1, 2)                                                                # output.shape = [batch, vocab_size, num_tokens - 1]
+        target = target[:, 1:]                                                                                        # target.shape = [batch, num_tokens - 1]
         loss = self.criterion(output, target)
         return loss

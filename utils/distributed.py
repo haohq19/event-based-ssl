@@ -47,11 +47,11 @@ def enable_print(is_master):
     __builtin__.print = print
 
 
-def global_meters_all_sum(args, *meters):
+def global_meters_all_sum(local_rank, *meters):
     '''
     meters: scalar values calculated in each rank
     '''
-    tensors = [torch.tensor(meter, device=args.local_rank, dtype=torch.float32) for meter in meters]
+    tensors = [torch.tensor(meter, device=local_rank, dtype=torch.float32) for meter in meters]
     for tensor in tensors:
         # each item of `tensors` is all-reduced starting from index 0 (in-place)
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)

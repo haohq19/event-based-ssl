@@ -59,21 +59,29 @@ class CausalEventModelForDiscreteEventVAEEncoding(nn.Module):
 
         self.num_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
     
-    def forward(self, x):
+    def forward(self, x, return_hidden=False):
         """
         Forward pass of the module.
 
         Args:
             x (torch.Tensor): The input tensor of shape [batch, seq_len, d_event].
+            return_hidden (bool, optional): Whether to return the hidden state. Defaults to False.
 
         Returns:
             torch.Tensor: The computed loss.
+
         """
         _, seq_len, _ = x.size()
-        output = self.model(x)                                                                                        # output.shape = [batch, seq_len, vocab_size]
+        if return_hidden:
+            output, hidden = self.model(x, return_hidden=True)                                                        # hidden.shape = [batch, seq_len, dim_hidden]
+        else:
+            output = self.model(x, return_hidden=False)                                                               # output.shape = [batch, seq_len, vocab_size]
         target = self.encoding(x, return_hidden=False)                                                                # target.shape = [batch, num_tokens]
         indices = torch.arange(self.nevents_per_token - 1, seq_len - self.nevents_per_token, self.nevents_per_token)  # indices.shape = [num_tokens - 1]
         output = output[:, indices, :].transpose(1, 2)                                                                # output.shape = [batch, vocab_size, num_tokens - 1]
         target = target[:, 1:]                                                                                        # target.shape = [batch, num_tokens - 1]
         loss = self.criterion(output, target)
-        return loss
+        if return_hidden:
+            return loss, hidden
+        else:
+            return loss

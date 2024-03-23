@@ -15,9 +15,15 @@ def cache_representations(
     cache_dir: str,
 ):  
     if os.path.exists(cache_dir):
-        print('cached feature map already exists')
+        if os.path.exists(os.path.join(cache_dir, 'train_features.npy')) and \
+        os.path.exists(os.path.join(cache_dir, 'train_labels.npy')) and \
+        os.path.exists(os.path.join(cache_dir, 'valid_features.npy')) and\
+        os.path.exists(os.path.join(cache_dir, 'valid_labels.npy')):
+            print('cached feature map already exists')
+            return
     else:
         os.makedirs(cache_dir)
+        print('make cache dir at [{}]'.format(cache_dir))
     
     with torch.no_grad():
         model.eval()
@@ -59,18 +65,14 @@ def cache_representations(
         np.save(os.path.join(cache_dir, 'valid_features.npy'), features)
         np.save(os.path.join(cache_dir, 'valid_labels.npy'), labels)
 
-        print('cached feature map saved to {}'.format(cache_dir))
+        print('pretrained representations cached to {}'.format(cache_dir))
 
 
-def get_data_loader_from_cached_representations(
-        cache_dir,
-        batch_size,
-        num_workers,
-    ):
-    train_dataset = TensorDataset(torch.from_numpy(np.load(os.path.join(cache_dir, 'train_features.npy'))), torch.from_numpy(np.load(os.path.join(cache_dir, 'train_labels.npy'))))
-    valid_dataset = TensorDataset(torch.from_numpy(np.load(os.path.join(cache_dir, 'valid_features.npy'))), torch.from_numpy(np.load(os.path.join(cache_dir, 'valid_labels.npy'))))
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True, drop_last=False)
-    valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True, drop_last=False)
+def get_data_loader_from_cached_representations(args):
+    train_dataset = TensorDataset(torch.from_numpy(np.load(os.path.join(args.cache_dir, 'train_features.npy'))), torch.from_numpy(np.load(os.path.join(args.cache_dir, 'train_labels.npy'))))
+    valid_dataset = TensorDataset(torch.from_numpy(np.load(os.path.join(args.cache_dir, 'valid_features.npy'))), torch.from_numpy(np.load(os.path.join(args.cache_dir, 'valid_labels.npy'))))
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.nworkers, pin_memory=True, drop_last=False)
+    valid_loader = DataLoader(valid_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.nworkers, pin_memory=True, drop_last=False)
     return train_loader, valid_loader
 
 
@@ -130,8 +132,11 @@ def transfer(
         tb_writer.add_scalar('train/acc@5', top5_accuracy, epoch + 1)
         tb_writer.add_scalar('train/loss', epoch_loss / nsamples_per_epoch, epoch + 1)
         process_bar.close()
-        print('train_cor@1: {}, train_cor@5: {}, train_total: {}'.format(top1_correct, top5_correct, nsamples_per_epoch))
-        print('train_acc@1: {}, train_acc@5: {}, train_avg_loss: {}'.format(top1_accuracy, top5_accuracy, epoch_loss / nsamples_per_epoch))
+        print('train || acc@1: {:.5f}, acc@5: {:.5f}, avg_loss: {:.6f}, cor@1: {}, cor@5: {}, total: {}'.format(
+             top1_accuracy, top5_accuracy, epoch_loss / nsamples_per_epoch, top1_correct, top5_correct, nsamples_per_epoch
+            )
+        )
+
         
         # valid
         model.eval()
@@ -159,8 +164,10 @@ def transfer(
         tb_writer.add_scalar('valid/acc@1', top1_accuracy, epoch + 1)
         tb_writer.add_scalar('valid/acc@5', top5_accuracy, epoch + 1)
         tb_writer.add_scalar('valid/loss', epoch_loss / nsamples_per_epoch, epoch + 1)
-        print('valid_cor@1: {}, valid_cor@5: {}, valid_total: {}'.format(top1_correct, top5_correct, nsamples_per_epoch))
-        print('valid_acc@1: {}, valid_acc@5: {}, valid_loss: {}'.format(top1_accuracy, top5_accuracy, epoch_loss / nsamples_per_epoch))
+        print('valid || acc@1: {:.5f}, acc@5: {:.5f}, avg_loss: {:.6f}, cor@1: {}, cor@5: {}, total: {}'.format(
+             top1_accuracy, top5_accuracy, epoch_loss / nsamples_per_epoch, top1_correct, top5_correct, nsamples_per_epoch
+            )
+        )
 
         epoch += 1
 

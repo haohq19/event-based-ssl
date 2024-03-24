@@ -1,10 +1,11 @@
 import os
 import argparse
 import random
+import hashlib
+import yaml
 import numpy as np
 import torch
 import torch.nn as nn
-import hashlib
 from models.causal_event_model.causal_event_model_for_discrete_event_vae_encoding import CausalEventModelForDiscreteEventVAEEncoding
 from models.heads.linear_probe import LinearProbe
 from utils.data import get_data_loader
@@ -30,11 +31,13 @@ def parser_args():
     parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
     parser.add_argument('--seq_len', default=2048, type=int, help='context length')
+    parser.add_argument('--nevents_per_token', default=64, type=int, help='number of events per token')
+    parser.add_argument('--dim_embedding', default=256, type=int, help='dimension of embedding')
     parser.add_argument('--vocab_size', default=1024, type=int, help='vocabulary size')
-    parser.add_argument('--pretrained', default='', type=str, help='path to pre-trained weights')
+    parser.add_argument('--pretrained', default='/home/haohq/event-based-ssl/outputs/pretrain_causal_event_model_for_discrete_event_vae_encoding/n_mnist_lr0.001_dmd128_nly4_T2048_ntk64_dem256_vsz1024/checkpoint/checkpoint_epoch200.pth', type=str, help='path to pre-trained weights')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=20, type=int, help='number of epochs')
+    parser.add_argument('--nepochs', default=30, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--weight_decay', default=0, type=float, help='weight decay')
@@ -62,7 +65,8 @@ def load_pretrained_weights(model, pretrained_path):
 
 def get_output_dir(args):
     output_dir = os.path.join(args.output_dir, args.dataset)
-    output_dir = os.path.join(output_dir, f'lr{args.lr}_wd{args.weight_decay}_dmd{args.d_model}_nly{args.num_layers}_T{args.seq_len}_vsz{args.vocab_size}')
+    output_dir = os.path.join(output_dir, f'lr{args.lr}_wd{args.weight_decay}_dmd{args.d_model}_nly{args.num_layers}_T{args.seq_len}')
+    output_dir += f'_ntk{args.nevents_per_token}_dem{args.dim_embedding}_vsz{args.vocab_size}'
     sha256_hash = hashlib.sha256(args.pretrained.encode()).hexdigest()
     output_dir += '_pt'
     output_dir += f'{sha256_hash[:8]}'
@@ -88,10 +92,9 @@ def main(args):
         d_model=args.d_model, 
         num_layers=args.num_layers, 
         dim_feedforward=4*args.d_model, 
-        nevents_per_token=32,
-        dim_embedding=32,
-        vocab_size=1024,
-        pretrained_discrete_event_vae_root=args.pretrained,
+        nevents_per_token=args.nevents_per_token,
+        dim_embedding=args.dim_embedding,
+        vocab_size=args.vocab_size,
     )
     if args.pretrained:
         model = load_pretrained_weights(model, args.pretrained)
@@ -113,7 +116,7 @@ def main(args):
     train_loader, valid_loader = get_data_loader_from_cached_representations(args)
     
     # linear_probe
-    model = LinearProbe(args.vocab_size, args.nclasses)
+    model = LinearProbe(args.d_model * args.num_layers, args.nclasses)
     model.cuda()
 
     # run
@@ -122,7 +125,10 @@ def main(args):
     optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss()
 
+    # print and save args
     print(args)
+    with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
+        yaml.dump(vars(args), f, default_flow_style=False)
 
     transfer(
         model=model,

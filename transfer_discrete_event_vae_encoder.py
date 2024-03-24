@@ -1,10 +1,11 @@
 import os
 import argparse
 import random
+import hashlib
+import yaml
 import numpy as np
 import torch
 import torch.nn as nn
-import hashlib
 from models.discrete_event_vae.discrete_event_vae_encoder import DiscreteEventVAEEncoder
 from models.heads.linear_probe import LinearProbe
 from utils.data import get_data_loader
@@ -34,7 +35,7 @@ def parser_args():
     parser.add_argument('--pretrained', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T64_dem256_ntk1024_dlt32_dhd32_nep50_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_50.pth', type=str, help='path to pre-trained weights')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
-    parser.add_argument('--nepochs', default=20, type=int, help='number of epochs')
+    parser.add_argument('--nepochs', default=30, type=int, help='number of epochs')
     parser.add_argument('--nworkers', default=16, type=int, help='number of workers')
     parser.add_argument('--lr', default=1e-4, type=float, help='learning rate')
     parser.add_argument('--weight_decay', default=0, type=float, help='weight decay')
@@ -121,7 +122,11 @@ def main(args):
     params = filter(lambda p: p.requires_grad, model.parameters())
     optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss()
+    
+    # print and save args
     print(args)
+    with open(os.path.join(output_dir, 'config.yaml'), 'w') as f:
+        yaml.dump(vars(args), f, default_flow_style=False)
 
     transfer(
         model=model,

@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 from ..rwkv4.src.model import TokenMixing, ChannelMixing
 
@@ -111,7 +112,10 @@ class CausalEventModel(nn.Module):
         x = self.ln1(x)                         # x.shape = [batch, seq_len, d_model]
         output = self.head(x)                   # output.shape = [batch, seq_len, d_out]
         if return_hidden:
-            hidden = self.layers[-1].hidden     # hidden.shape = [batch, d_model]
+            hiddens = []
+            for layer in self.layers:
+                hiddens.append(layer.hidden)            # hidden.shape = [batch, d_model]
+                hidden = torch.cat(hiddens, dim=1)    # hidden.shape = [batch, d_model * num_layers]
             return output, hidden
         else:
             return output

@@ -15,7 +15,7 @@ class CausalEventModelForDiscreteEventVAEEncoding(nn.Module):
         nevents_per_token (int): The number of events per token.
         dim_embedding (int): The dimensionality of the event embedding.
         vocab_size (int): The size of the vocabulary.
-        pretrained_discrete_event_vae_root (str): The path to the pretrained discrete event VAE model.
+        pretrained_discrete_event_vae_root (str, optional): The path to the pretrained discrete event VAE. Defaults to None.
 
     Attributes:
         model (CausalEventModel): The causal event model.
@@ -24,7 +24,7 @@ class CausalEventModelForDiscreteEventVAEEncoding(nn.Module):
         num_params (int): The total number of trainable parameters in the module.
     """
 
-    def __init__(self, d_event, d_model, num_layers, dim_feedforward, nevents_per_token, dim_embedding, vocab_size, pretrained_discrete_event_vae_root):
+    def __init__(self, d_event, d_model, num_layers, dim_feedforward, nevents_per_token, dim_embedding, vocab_size, pretrained_discrete_event_vae_root=None):
         super().__init__()
         self.d_event = d_event
         self.d_model = d_model
@@ -50,10 +50,11 @@ class CausalEventModelForDiscreteEventVAEEncoding(nn.Module):
         )
 
         self.criterion = nn.CrossEntropyLoss()
-
-        checkpoint = torch.load(pretrained_discrete_event_vae_root)
-        pretrained_weight = checkpoint['model']
-        self.encoding.discrete_event_vae.load_state_dict(pretrained_weight, strict=False)
+        
+        if pretrained_discrete_event_vae_root is not None:
+            checkpoint = torch.load(pretrained_discrete_event_vae_root)
+            pretrained_weight = checkpoint['model']
+            self.encoding.discrete_event_vae.load_state_dict(pretrained_weight, strict=False)
         for p in self.encoding.discrete_event_vae.parameters():
             p.requires_grad = False
 

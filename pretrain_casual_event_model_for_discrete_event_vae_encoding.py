@@ -25,13 +25,13 @@ def parser_args():
     parser.add_argument('--root', default='datasets/NMNIST', type=str, help='path to dataset')
     parser.add_argument('--batch_size', default=32, type=int, help='batch size')
     # model
-    parser.add_argument('--d_model', default=128, type=int, help='dimension of embedding')
+    parser.add_argument('--d_model', default=64, type=int, help='dimension of embedding')
     parser.add_argument('--num_layers', default=4, type=int, help='number of layers')
     parser.add_argument('--seq_len', default=2048, type=int, help='sequence length')
     parser.add_argument('--dim_embedding', default=256, type=int, help='dimension of embedding')
-    parser.add_argument('--nevents_per_token', default=64, type=int, help='number of events per token')
+    parser.add_argument('--nevents_per_token', default=128, type=int, help='number of events per token')
     parser.add_argument('--vocab_size', default=1024, type=int, help='vocabulary size')
-    parser.add_argument('--pretrained', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T64_dem256_ntk1024_dlt32_dhd32_nep50_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_50.pth', type=str, help='path to pretrained dvae model')
+    parser.add_argument('--pretrained', default='/home/haohq/test/outputs/discrete_event_vae/n_mnist_lr0.001_T128_dem256_ntk1024_dlt32_dhd32_nep100_stp1_gma0.99_klw1_0.025_tmp4_0.0625_0.2_exp_bce/checkpoints/checkpoint_100.pth', type=str, help='path to pretrained DEVAE model')
     # run
     parser.add_argument('--device_id', default=0, type=int, help='GPU id to use, invalid when distributed training')
     parser.add_argument('--nepochs', default=200, type=int, help='number of epochs')

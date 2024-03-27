@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from models.discrete_event_vae.discrete_event_vae_encoder import DiscreteEventVAEEncoder
-from models.heads.linear_probe import LinearProbe
+from models.linear_probe.linear_probe import LinearProbe
 from utils.data import get_data_loader
 from utils.distributed import init_ddp
 from engines.transfer import cache_representations, get_data_loader_from_cached_representations, transfer
